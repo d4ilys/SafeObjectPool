@@ -4,6 +4,7 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 
 public class ObjectWarp<T> {
+
     public ObjectWarp(ObjectPool<T> pool, int id, T value) {
         Pool = pool;
         Id = id;
@@ -15,49 +16,32 @@ public class ObjectWarp<T> {
         Id = id;
     }
 
-    /// <summary>
-    /// 所属对象池
-    /// </summary>
+    //所属对象池
     public ObjectPool<T> Pool;
 
-    /// <summary>
-    /// 在对象池中的唯一标识
-    /// </summary>
+    //在对象池中的唯一标识
     public int Id;
-    /// <summary>
-    /// 资源对象
-    /// </summary>
+    //资源对象
     public T Value;
 
     long _getTimes;
-    /// <summary>
-    /// 被获取的总次数
-    /// </summary>
+    //被获取的总次数
     public long GetTimes = _getTimes;
 
-    /// 最后获取时的时间
+    //最后获取时的时间
     public Date LastGetTime;
 
 
-    /// <summary>
-    /// 最后归还时的时间
-    /// </summary>
+    //最后归还时的时间
     public Date LastReturnTime;
 
-    /// <summary>
-    /// 创建时间
-    /// </summary>
+    //创建时间
     public Date CreateTime = new Date();
 
-
-    /// <summary>
-    /// 最后获取时的线程id
-    /// </summary>
+    //最后获取时的线程id
     public long LastGetThreadId;
 
-    /// <summary>
-    /// 最后归还时的线程id
-    /// </summary>
+    //最后归还时的线程id
     public long LastReturnThreadId;
 
     @Override
@@ -74,9 +58,9 @@ public class ObjectWarp<T> {
         return result;
     }
 
-    /// <summary>
-    /// 重置 Value 值
-    /// </summary>
+    /**
+     * 重置 Value 值
+     */
     public void ResetValue() {
         if (this.Value != null) {
             try {

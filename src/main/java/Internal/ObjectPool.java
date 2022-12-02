@@ -1,6 +1,5 @@
 package Internal;
 
-import cn.hutool.core.date.StopWatch;
 import delegates.Action1;
 import delegates.Func1;
 
@@ -16,22 +15,20 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
 
-/// <summary>
-/// 对象池管理类
-/// </summary>
-/// <typeparam name="T">对象类型</typeparam>
+/**
+ * 对象池管理类
+ */
 public class ObjectPool<T> implements AutoCloseable {
-    public DefaultPolicy<T> Policy;
+    public IPolicy<T> Policy;
     private List<ObjectWarp<T>> _allObjects = new ArrayList<>();
-    public ConcurrentLinkedDeque<ObjectWarp<T>> _freeObjects = new ConcurrentLinkedDeque<>();
 
+    public ConcurrentLinkedDeque<ObjectWarp<T>> _freeObjects = new ConcurrentLinkedDeque<>();
     private BlockingQueue<GetSyncQueueInfo> _getSyncQueue = new LinkedBlockingQueue<>();
     private BlockingQueue<Boolean> _getQueue = new LinkedBlockingQueue<>();
 
     public boolean IsAvailable = this.UnavailableException == null;
     public Exception UnavailableException = null;
     public Date UnavailableTime;
-
     private boolean running = true;
 
     private Lock unavailableLock = new ReentrantLock();
@@ -60,22 +57,21 @@ public class ObjectPool<T> implements AutoCloseable {
         if (isseted) {
 
             Policy.OnUnavailable();
-            CheckAvailable(Policy.CheckAvailableInterval);
+            CheckAvailable(Policy.getCheckAvailableInterval());
         }
 
         return isseted;
     }
 
-    /// <summary>
-    /// 后台定时检查可用性
-    /// </summary>
-    /// <param name="interval"></param>
+    /*
+     * 后台定时检查可用性
+     */
     private void CheckAvailable(int interval) {
         new Thread(() ->
         {
 
             if (UnavailableException != null) {
-                System.out.println(Policy.Name + "恢复检查时间：" + interval / 1000 + "秒后");
+                System.out.println(Policy.getName() + "恢复检查时间：" + interval / 1000 + "秒后");
             }
 
             while (UnavailableException != null) {
@@ -84,24 +80,27 @@ public class ObjectPool<T> implements AutoCloseable {
                 try {
 
                     var conn = getFree(false);
-                    if (conn == null) throw new Exception("CheckAvailable 无法获得资源");
+                    if (conn == null) {
+                        try {
+                            throw new Exception("CheckAvailable 无法获得资源");
+                        } catch (Exception exception) {
+                            exception.printStackTrace();
+                        }
+                    }
 
                     try {
-
                         if (Policy.OnCheckAvailable(conn) == false)
                             throw new Exception("CheckAvailable 应抛出异常，代表仍然不可用。");
                         break;
-
+                    } catch (Exception e) {
+                        e.printStackTrace();
                     } finally {
-
                         Return(conn);
                     }
-
                 } catch (Exception ex) {
-                    System.out.println(Policy.Name + "仍然不可用，下一次恢复检查时间：" + interval / 1000 + "秒后，错误：" + ex.toString());
+                    System.out.println(Policy.getName() + "仍然不可用，下一次恢复检查时间：" + interval / 1000 + "秒后，错误：" + ex.toString());
                 }
             }
-
             RestoreToAvailable();
 
         }).start();
@@ -137,28 +136,34 @@ public class ObjectPool<T> implements AutoCloseable {
 
             Policy.OnAvailable();
 
-            System.out.println(Policy.Name + "已恢复工作");
+            System.out.println(Policy.getName() + "已恢复工作");
         }
     }
 
-    protected boolean LiveCheckAvailable() throws Exception {
+    protected boolean LiveCheckAvailable() {
 
         try {
 
             var conn = getFree(false);
-            if (conn == null) throw new Exception("LiveCheckAvailable 无法获得资源，{this.Statistics}");
+            if (conn == null) {
+                try {
+                    throw new Exception("LiveCheckAvailable 无法获得资源，{this.Statistics}");
+                } catch (Exception exception) {
+                    exception.printStackTrace();
+                }
+            }
 
             try {
-
                 if (Policy.OnCheckAvailable(conn) == false)
                     throw new Exception("LiveCheckAvailable 应抛出异常，代表仍然不可用。");
-
+            } catch (Exception e) {
+                e.printStackTrace();
             } finally {
-
                 Return(conn);
             }
 
         } catch (Exception e) {
+            e.printStackTrace();
             return false;
         }
 
@@ -167,12 +172,21 @@ public class ObjectPool<T> implements AutoCloseable {
         return true;
     }
 
+    /**
+     * 对象池统计
+     *
+     * @return 统计字符串
+     */
     public String Statistics() {
         return "Pool: " + _freeObjects.stream().count() + "/" + _allObjects.stream().count() + ", Get wait: " + _getSyncQueue.stream().count();
     }
 
-    ;
 
+    /**
+     * 详细统计
+     *
+     * @return
+     */
     public String StatisticsFully() {
         var dateFormat = new SimpleDateFormat("yyyy-MM-dd :hh:mm:ss");
         var sb = new StringBuilder();
@@ -191,39 +205,57 @@ public class ObjectPool<T> implements AutoCloseable {
         return sb.toString();
     }
 
+    /**
+     * 创建对象池
+     *
+     * @param poolSize     对象池的大小
+     * @param createObject 创建对象的动作
+     */
     public ObjectPool(int poolSize, Func1<T> createObject) {
         this(poolSize, createObject, null);
     }
 
-    /// <summary>
-    /// 创建对象池
-    /// </summary>
-    /// <param name="policy">策略</param>
+    /**
+     * 创建对象池
+     *
+     * @param poolSize     对象池的大小
+     * @param createObject 创建对象的动作
+     * @param onGetObject  获取对象时候触发的动作
+     */
     public ObjectPool(int poolSize, Func1<T> createObject, Action1<ObjectWarp<T>> onGetObject) {
-        var p = new DefaultPolicy<T>();
+        DefaultPolicy<T> p = new DefaultPolicy<T>();
         p.PoolSize = poolSize;
         p.CreateObject = createObject;
         p.OnGetObject = onGetObject;
         Policy = p;
     }
 
-    /// <summary>
-    /// 获取可用资源，或创建资源
-    /// </summary>
-    /// <returns></returns>
-    private ObjectWarp<T> getFree(boolean checkAvailable) throws Exception {
+    /**
+     * 获取可用资源，或创建资源
+     */
+    private ObjectWarp<T> getFree(boolean checkAvailable) {
 
-        if (running == false)
-            throw new Exception(Policy.Name + "对象池已释放，无法访问。");
+        if (running == false) {
+            try {
+                throw new Exception(Policy.Name + "对象池已释放，无法访问。");
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
 
-        if (checkAvailable && UnavailableException != null)
-            throw new Exception("状态不可用，等待后台检查程序恢复方可使用。" + UnavailableException.getClass());
+        if (checkAvailable && UnavailableException != null) {
+            try {
+                throw new Exception("状态不可用，等待后台检查程序恢复方可使用。" + UnavailableException.getClass());
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
 
         ObjectWarp obj = null;
-        if (_freeObjects.isEmpty() && _allObjects.stream().count() < Policy.PoolSize) {
+        if (_freeObjects.isEmpty() && _allObjects.stream().count() < Policy.getPoolSize()) {
             try {
                 getFreeLock.lock();
-                if (_allObjects.stream().count() < Policy.PoolSize) {
+                if (_allObjects.stream().count() < Policy.getPoolSize()) {
                     long idTemp = _allObjects.stream().count() + 1;
                     obj = new ObjectWarp<T>(this, Long.valueOf(idTemp).intValue());
                     _allObjects.add(obj);
@@ -240,26 +272,29 @@ public class ObjectPool<T> implements AutoCloseable {
         if (obj != null && obj.LastReturnTime != null)
             lastReturnTime = obj.LastReturnTime.getTime();
         if (obj != null && obj.Value == null ||
-                obj != null && Policy.IdleTimeout > 0 && (new Date().getTime() - lastReturnTime) > Policy.IdleTimeout) {
+                obj != null && Policy.getIdleTimeout() > 0 && (new Date().getTime() - lastReturnTime) > Policy.getIdleTimeout()) {
             try {
                 obj.ResetValue();
             } catch (Exception ex) {
                 Return(obj);
-                throw new Exception(ex);
+                ex.printStackTrace();
             }
         }
 
         return obj;
     }
 
-    public ObjectWarp<T> Get() throws Exception {
+    /**
+     * 获取资源
+     */
+    public ObjectWarp<T> Get() {
         var obj = getFree(true);
 
         if (obj == null) {
             var queueItem = new GetSyncQueueInfo();
             _getSyncQueue.add(queueItem);
             _getQueue.add(false);
-            var timeout = Policy.SyncGetTimeout;
+            var timeout = Policy.getSyncGetTimeout();
             //线程等待
             try {
                 if (queueItem.Wait.waitOne(timeout)) {
@@ -286,7 +321,11 @@ public class ObjectPool<T> implements AutoCloseable {
                 Policy.OnGetTimeout();
 
                 if (Policy.IsThrowGetTimeoutException)
-                    throw new Exception("SafeObjectPool.Get 获取超时（" + timeout / 1000 + "秒）。");
+                    try {
+                        throw new Exception("SafeObjectPool.Get 获取超时（" + timeout / 1000 + "秒）。");
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
 
                 return null;
             }
@@ -296,7 +335,7 @@ public class ObjectPool<T> implements AutoCloseable {
             Policy.OnGet(obj);
         } catch (Exception ex) {
             Return(obj);
-            throw new Exception(ex);
+            ex.printStackTrace();
         }
         obj.LastGetThreadId = Thread.currentThread().getId();
         obj.LastGetTime = new Date();
@@ -306,11 +345,19 @@ public class ObjectPool<T> implements AutoCloseable {
         return obj;
     }
 
-    public void Return(ObjectWarp<T> obj) throws Exception {
-        Return(obj, false);
+    /**
+     * @param timeout 获取超时时间
+     * @return 包装对象
+     */
+    public ObjectWarp Get(long timeout) {
+        Policy.setSyncGetTimeout(timeout);
+        return Get();
     }
 
-    public void Return(ObjectWarp<T> obj, boolean isReset) throws Exception {
+    /**
+     * 归还连接池
+     */
+    public void Return(ObjectWarp<T> obj, boolean isReset) {
 
         if (obj == null) return;
 
@@ -372,7 +419,7 @@ public class ObjectPool<T> implements AutoCloseable {
             try {
                 Policy.OnReturn(obj);
             } catch (Exception ex) {
-                throw new Exception(ex);
+                ex.printStackTrace();
             } finally {
                 obj.LastReturnThreadId = Thread.currentThread().getId();
                 obj.LastReturnTime = new Date();
@@ -381,6 +428,13 @@ public class ObjectPool<T> implements AutoCloseable {
                 _freeObjects.add(obj);
             }
         }
+    }
+
+    /**
+     * 归还连接池
+     */
+    public void Return(ObjectWarp obj) {
+        Return(obj, false);
     }
 
     @Override
